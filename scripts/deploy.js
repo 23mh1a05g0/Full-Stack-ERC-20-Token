@@ -1,5 +1,4 @@
 import hardhat from "hardhat";
-const { ethers, network, run } = hardhat;
 import { createRequire } from "module";
 import fs from "fs";
 import path from "path";
@@ -10,11 +9,14 @@ const __dirname = path.dirname(__filename);
 const require = createRequire(import.meta.url);
 
 async function main() {
+  const conn = await hardhat.network.getOrCreate();
+  const ethers = conn.ethers;
+  const networkName = conn.networkName;
   const [deployer] = await ethers.getSigners();
   console.log("====================================================");
   console.log(`Deploying contracts with account: ${deployer.address}`);
   console.log(`Account balance: ${(await ethers.provider.getBalance(deployer.address)).toString()} wei`);
-  console.log(`Network: ${network.name}`);
+  console.log(`Network: ${networkName}`);
   console.log("====================================================");
 
   // 1. Deploy Token contract
@@ -53,8 +55,8 @@ async function main() {
     faucetAddress,
     tokenAbi: tokenArtifact.abi,
     faucetAbi: faucetArtifact.abi,
-    network: network.name,
-    chainId: network.config.chainId,
+    network: networkName,
+    chainId: conn.networkConfig.chainId,
   };
 
   fs.writeFileSync(
@@ -64,29 +66,27 @@ async function main() {
   console.log(`Contract data exported to: ${path.join(frontendDir, "contractsData.json")}`);
 
   // 5. Verify contracts on Etherscan if not on a local network
-  if (network.name !== "hardhat" && network.name !== "localhost") {
+  if (networkName !== "hardhat" && networkName !== "localhost") {
     console.log("====================================================");
     console.log("Waiting for block confirmations before verification...");
     await token.deploymentTransaction().wait(5);
 
-    console.log("Verifying YourToken on Etherscan...");
-    try {
-      await run("verify:verify", {
-        address: tokenAddress,
-        constructorArguments: ["FaucetToken", "FTK", deployer.address],
-      });
-    } catch (e) {
-      console.log(`Token verification failed: ${e.message}`);
-    }
+    if (conn.verification && conn.verification.etherscan) {
+      console.log("Verifying YourToken on Etherscan...");
+      try {
+        await conn.verification.etherscan.verify(tokenAddress, ["FaucetToken", "FTK", deployer.address]);
+      } catch (e) {
+        console.log(`Token verification failed: ${e.message}`);
+      }
 
-    console.log("Verifying TokenFaucet on Etherscan...");
-    try {
-      await run("verify:verify", {
-        address: faucetAddress,
-        constructorArguments: [tokenAddress],
-      });
-    } catch (e) {
-      console.log(`Faucet verification failed: ${e.message}`);
+      console.log("Verifying TokenFaucet on Etherscan...");
+      try {
+        await conn.verification.etherscan.verify(faucetAddress, [tokenAddress]);
+      } catch (e) {
+        console.log(`Faucet verification failed: ${e.message}`);
+      }
+    } else {
+      console.log("Verification helper not available for this network connection.");
     }
   }
 
